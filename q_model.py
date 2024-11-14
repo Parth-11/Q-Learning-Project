@@ -1,14 +1,9 @@
 import numpy as np
-from snake_game import Env
+from snake_game import Env, FOOD_REWARD, SIZE_X, SIZE_Y
 import matplotlib.pyplot as plt
 from matplotlib import style
 import time
 import pickle
-
-FOOD_REWARD = 10
-BLOCK_SIZE = 10
-SIZE_X = 720
-SIZE_Y = 480
 
 style.use('ggplot')
 
@@ -24,8 +19,6 @@ MOVES_PER_EP = 200
 
 start_q_table = None
 
-env = Env()
-
 if start_q_table is None:
     q_table = {}
 
@@ -40,17 +33,19 @@ else:
 
 epsiode_rewards = []
 
-def discrete_state(state):
-    snake_pos = [state[0],state[1]]
-    food_pos = [state[2],state[3]]
+env = Env()
 
-    direction = [state[4],state[5],state[6],state[7]]
-
-    discrete_snake_pos = (snake_pos[0]//BLOCK_SIZE,snake_pos[1]//BLOCK_SIZE)
-    discrete_food_pos = (food_pos[0]//BLOCK_SIZE,food_pos[1]//BLOCK_SIZE)
-
-    discrete = (discrete_snake_pos,discrete_food_pos,direction)
-    return discrete
+##def discrete_state(state):
+##    snake_pos = [state[0],state[1]]
+##    food_pos = [state[2],state[3]]
+##
+##    direction = [state[4],state[5],state[6],state[7]]
+##
+##    discrete_snake_pos = (snake_pos[0]//BLOCK_SIZE,snake_pos[1]//BLOCK_SIZE)
+##    discrete_food_pos = (food_pos[0]//BLOCK_SIZE,food_pos[1]//BLOCK_SIZE)
+##
+##    discrete = (discrete_snake_pos,discrete_food_pos,direction)
+##    return discrete
 
 for episode in range(EPISODES):
 
@@ -63,8 +58,10 @@ for episode in range(EPISODES):
     
     epsiode_reward = 0
 
-    state = discrete_state(env.reset())
+    state = env.reset()
 
+    print(state)
+    
     for i in range(MOVES_PER_EP):
 
         if np.random.rand() > epsilon:
@@ -74,7 +71,7 @@ for episode in range(EPISODES):
 
         new_state,reward,done = env.step(action)
 
-        new_discrete_state = discrete_state(new_state)
+        new_discrete_state = new_state
 
         max_future_q = np.max(q_table[new_discrete_state])
         curr_q = q_table[state][action]
