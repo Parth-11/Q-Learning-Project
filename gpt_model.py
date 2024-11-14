@@ -1,229 +1,143 @@
-import pygame
-import sys
-import time
-import random
+import pygame, sys, random
 import numpy as np
-import matplotlib.pyplot as plt
-import pickle
-from matplotlib import style
 
-SIZE_X = 720
-SIZE_Y = 480
-BLOCK_SIZE = 10
-FPS = 60
+# Initialize PyGame
+pygame.init()
 
-BOUNDARY_PENALTY = 100
-SELF_PENALTY = 150
-FOOD_REWARD = 10
+# Difficulty settings
+difficulty = 10  # Adjust as needed for testing speed
 
-BLACK = pygame.Color(0, 0, 0)
-WHITE = pygame.Color(255, 255, 255)
-RED = pygame.Color(255, 0, 0)
-GREEN = pygame.Color(0, 255, 0)
+# Window size
+frame_size_x = 720
+frame_size_y = 480
 
-class Env:
-    def __init__(self):
-        pygame.init()
-        pygame.display.set_caption("Snake Game")
-        self.clock = pygame.time.Clock()
-        self.game_window = pygame.display.set_mode((SIZE_X, SIZE_Y))
-        self.snake_pos = [100, 50]
-        self.snake_body = [[100, 50], [90, 50], [80, 50]]
-        self.food_pos = self._spawnFood()
-        self.food_spawn = True
-        self.direction = 'RIGHT'
-        self.score = 0
+# Colors
+black = pygame.Color(0, 0, 0)
+white = pygame.Color(255, 255, 255)
+red = pygame.Color(255, 0, 0)
+green = pygame.Color(0, 255, 0)
 
-    def _spawnFood(self):
-        return [random.randrange(1, SIZE_X // BLOCK_SIZE) * BLOCK_SIZE,
-                random.randrange(1, SIZE_Y // BLOCK_SIZE) * BLOCK_SIZE]
-    
-    def get_action_size(self):
-        return 4
+# Game Display
+pygame.display.set_caption('Snake Eater AI')
+game_window = pygame.display.set_mode((frame_size_x, frame_size_y))
 
-    def reset(self):
-        self.snake_pos = [100, 50]
-        self.snake_body = [[100, 50], [90, 50], [80, 50]]
-        self.food_pos = self._spawnFood()
-        self.food_spawn = True
-        self.direction = 'RIGHT'
-        self.score = 0
-        return self.get_state()
-    
-    def get_state(self):
-        return [self.snake_pos[0], self.snake_pos[1],
-                self.food_pos[0], self.food_pos[1],
-                int(self.direction == 'UP'), int(self.direction == 'DOWN'),
-                int(self.direction == 'LEFT'), int(self.direction == 'RIGHT')]
-    
-    def step(self, action):
-        directions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
-        new_direction = directions[action]
+# FPS controller
+fps_controller = pygame.time.Clock()
 
-        if (new_direction == 'UP' and self.direction != 'DOWN') or \
-           (new_direction == 'DOWN' and self.direction != 'UP') or \
-           (new_direction == 'LEFT' and self.direction != 'RIGHT') or \
-           (new_direction == 'RIGHT' and self.direction != 'LEFT'):
-            self.direction = new_direction
+# Q-learning Parameters
+actions = ['UP', 'DOWN', 'LEFT', 'RIGHT']
+q_table = {}
+learning_rate = 0.1
+discount_factor = 0.9
+epsilon = 1.0  # Exploration rate
+epsilon_decay = 0.995
+min_epsilon = 0.01
 
-        if self.direction == 'UP':
-            self.snake_pos[1] -= BLOCK_SIZE
-        elif self.direction == 'DOWN':
-            self.snake_pos[1] += BLOCK_SIZE
-        elif self.direction == 'LEFT':
-            self.snake_pos[0] -= BLOCK_SIZE
-        elif self.direction == 'RIGHT':
-            self.snake_pos[0] += BLOCK_SIZE
-    
-        reward = 0
-        done = False
+# Game Variables
+def reset_game():
+    global snake_pos, snake_body, food_pos, food_spawn, score
+    snake_pos = [100, 50]
+    snake_body = [[100, 50], [90, 50], [80, 50]]
+    food_pos = [random.randrange(1, (frame_size_x//10)) * 10, random.randrange(1, (frame_size_y//10)) * 10]
+    food_spawn = True
+    score = 0
 
-        self.snake_body.insert(0, list(self.snake_pos))
+def get_state():
+    danger = [
+        (snake_pos[0] == 0 or [snake_pos[0] - 10, snake_pos[1]] in snake_body),  # Danger left
+        (snake_pos[0] == frame_size_x - 10 or [snake_pos[0] + 10, snake_pos[1]] in snake_body),  # Danger right
+        (snake_pos[1] == 0 or [snake_pos[0], snake_pos[1] - 10] in snake_body),  # Danger up
+        (snake_pos[1] == frame_size_y - 10 or [snake_pos[0], snake_pos[1] + 10] in snake_body),  # Danger down
+    ]
+    food_direction = (food_pos[0] - snake_pos[0], food_pos[1] - snake_pos[1])
+    return (*danger, *food_direction)
 
-        if self.snake_pos == self.food_pos:
-            self.score += 1
-            reward = FOOD_REWARD
-            self.food_spawn = False
+def choose_action(state):
+    if np.random.rand() < epsilon:  # Exploration
+        return random.choice(actions)
+    if state not in q_table:
+        q_table[state] = np.zeros(len(actions))  # Initialize if state is new
+    return actions[np.argmax(q_table[state])]
+
+def update_q_table(state, action, reward, next_state):
+    if state not in q_table:
+        q_table[state] = np.zeros(len(actions))
+    if next_state not in q_table:
+        q_table[next_state] = np.zeros(len(actions))
+    action_index = actions.index(action)
+    best_future_q = np.max(q_table[next_state])
+    q_table[state][action_index] = q_table[state][action_index] + learning_rate * (reward + discount_factor * best_future_q - q_table[state][action_index])
+
+# Render function for display
+def render_game():
+    game_window.fill(black)
+    for pos in snake_body:
+        pygame.draw.rect(game_window, green, pygame.Rect(pos[0], pos[1], 10, 10))
+    pygame.draw.rect(game_window, white, pygame.Rect(food_pos[0], food_pos[1], 10, 10))
+    pygame.display.update()
+
+# Main Game Loop
+for episode in range(100):  # Number of games to train
+    reset_game()
+    direction = 'RIGHT'
+    while True:
+        state = get_state()
+        action = choose_action(state)
+
+        # Convert action to movement
+        if action == 'UP' and direction != 'DOWN':
+            direction = 'UP'
+        elif action == 'DOWN' and direction != 'UP':
+            direction = 'DOWN'
+        elif action == 'LEFT' and direction != 'RIGHT':
+            direction = 'LEFT'
+        elif action == 'RIGHT' and direction != 'LEFT':
+            direction = 'RIGHT'
+
+        # Move snake in the chosen direction
+        if direction == 'UP':
+            snake_pos[1] -= 10
+        elif direction == 'DOWN':
+            snake_pos[1] += 10
+        elif direction == 'LEFT':
+            snake_pos[0] -= 10
+        elif direction == 'RIGHT':
+            snake_pos[0] += 10
+
+        # Snake eats food
+        if snake_pos == food_pos:
+            score += 1
+            food_spawn = False
+            reward = 10
         else:
-            self.snake_body.pop()
+            snake_body.pop()
+            reward = -0.1
 
-        if not self.food_spawn:
-            self.food_pos = self._spawnFood()
-            self.food_spawn = True
+        # Spawn food
+        if not food_spawn:
+            food_pos = [random.randrange(1, (frame_size_x//10)) * 10, random.randrange(1, (frame_size_y//10)) * 10]
+        food_spawn = True
 
-        if self._isCollisionBoundary():
-            reward = -BOUNDARY_PENALTY
-            done = True
-
-        if self._isCollisionSelf():
-            reward = -SELF_PENALTY
-            done = True
-
-        new_state = self.get_state()
-        return new_state, reward, done
-    
-    def _isCollisionBoundary(self):
-        if (self.snake_pos[0] < 0 or self.snake_pos[0] >= SIZE_X
-                or self.snake_pos[1] < 0 or self.snake_pos[1] >= SIZE_Y):
-            return True
-        return False
-
-    def _isCollisionSelf(self):
-        if self.snake_pos in self.snake_body[1:]:
-            return True
-        return False
-    
-    def render(self):
-        self.game_window.fill(BLACK)
-        for pos in self.snake_body:
-            pygame.draw.rect(self.game_window, GREEN, pygame.Rect(pos[0], pos[1], BLOCK_SIZE, BLOCK_SIZE))
-        
-        pygame.draw.rect(self.game_window, WHITE, pygame.Rect(self.food_pos[0], self.food_pos[1], BLOCK_SIZE, BLOCK_SIZE))
-        pygame.display.flip()
-        self.clock.tick(FPS)
-
-    def close(self):
-        pygame.quit()
-        sys.exit()
-
-
-##Q Learning
-
-style.use('ggplot')
-
-LEARNING_RATE = 0.1
-DISCOUNT = 0.9
-
-epsilon = 0.8
-EPS_DECAY = 0.998
-
-EPISODES = 25000
-SHOW_EVERY = 1000
-MOVES_PER_EP = 200
-
-start_q_table = None
-
-env = Env()
-
-if start_q_table is None:
-    q_table = {}
-    for x1 in range(-SIZE_X // BLOCK_SIZE, SIZE_X // BLOCK_SIZE):
-        for y1 in range(-SIZE_Y // BLOCK_SIZE, SIZE_Y // BLOCK_SIZE):
-            for x2 in range(-SIZE_X // BLOCK_SIZE, SIZE_X // BLOCK_SIZE):
-                for y2 in range(-SIZE_Y // BLOCK_SIZE, SIZE_Y // BLOCK_SIZE):
-                    q_table[((x1, y1), (x2, y2))] = [np.random.uniform(-5, 0) for _ in range(4)]
-else:
-    with open(start_q_table, 'rb') as f:
-        q_table = pickle.load(f)
-
-episode_rewards = []
-
-def discrete_state(state):
-    snake_pos = (state[0] // BLOCK_SIZE, state[1] // BLOCK_SIZE)
-    food_pos = (state[2] // BLOCK_SIZE, state[3] // BLOCK_SIZE)
-    direction = tuple(state[4:8])
-    return (snake_pos, food_pos, direction)
-
-for episode in range(EPISODES):
-
-    if episode % SHOW_EVERY == 0:
-        print(f"on # {episode}, epsilon: {epsilon}")
-        print(f"{SHOW_EVERY} ep mean {np.mean(episode_rewards[-SHOW_EVERY:])}")
-        show = True
-    else:
-        show = False
-
-    episode_reward = 0
-    state = discrete_state(env.reset())
-
-    for _ in range(MOVES_PER_EP):
-
-        if state not in q_table:
-            q_table[state] = [np.random.uniform(-5, 0) for _ in range(4)]
-
-        if np.random.rand() > epsilon:
-            action = np.argmax(q_table[state])
-        else:
-            action = np.random.randint(0, 4)
-
-        new_state, reward, done = env.step(action)
-        new_discrete_state = discrete_state(new_state)
-
-        if new_discrete_state not in q_table:
-            q_table[new_discrete_state] = [np.random.uniform(-5, 0) for _ in range(4)]
-
-        max_future_q = np.max(q_table[new_discrete_state])
-        current_q = q_table[state][action]
-
-        if reward == FOOD_REWARD:
-            new_q = FOOD_REWARD
-        else:
-            new_q = (1 - LEARNING_RATE) * current_q + LEARNING_RATE * (reward + DISCOUNT * max_future_q)
-
-        q_table[state][action] = new_q
-
-        if show:
-            env.render()
-            time.sleep(0.05)
-        
-        episode_reward += reward
-
-        if done:
+        # Game Over conditions
+        if (snake_pos[0] < 0 or snake_pos[0] >= frame_size_x or
+            snake_pos[1] < 0 or snake_pos[1] >= frame_size_y or
+            snake_pos in snake_body):
+            reward = -10
+            update_q_table(state, action, reward, get_state())
             break
 
-        state = new_discrete_state
+        # Update snake
+        snake_body.insert(0, list(snake_pos))
+        next_state = get_state()
+        update_q_table(state, action, reward, next_state)
 
-    episode_rewards.append(episode_reward)
-    epsilon *= EPS_DECAY
+        # Render the game and control the speed
+        render_game()
+        fps_controller.tick(difficulty)
 
-moving_avg = np.convolve(episode_rewards, np.ones(SHOW_EVERY) / SHOW_EVERY, mode='valid')
+        # Reduce epsilon over time
+        epsilon = max(min_epsilon, epsilon * epsilon_decay)
 
-plt.plot([i for i in range(len(moving_avg))], moving_avg)
-plt.ylabel(f"Reward {SHOW_EVERY}")
-plt.xlabel("Episode #")
-plt.show()
-
-with open(f"q-table-{int(time.time())}.pickle", 'wb') as f:
-    pickle.dump(q_table, f)
-
-env.close()
+# Quit Game
+pygame.quit()
+sys.exit()
